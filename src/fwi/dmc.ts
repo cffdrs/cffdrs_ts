@@ -26,7 +26,7 @@
  * @param {boolean} [lat_adjust=true] - Latitude adjustment
  * @returns {number} A single dmc value
  */
-function dmc(
+export function dmc(
   dmc_yda: number,
   temp: number,
   rh: number,

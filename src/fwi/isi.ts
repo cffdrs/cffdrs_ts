@@ -18,7 +18,7 @@
  * @param {boolean} [fbpMod=false] - use fbp modification at the extreme end
  * @returns {number} Intial Spread Index
  */
-function isi(ffmc: number, ws: number, fbpMod: boolean = false) {
+export function isi(ffmc: number, ws: number, fbpMod: boolean = false) {
   // FIX: works for now
   const exp = Math.exp;
   // Eq. 10 - Moisture content

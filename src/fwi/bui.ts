@@ -21,7 +21,7 @@
  * @param {number} dmc - Duff Moisture Code
  * @returns {number} A single bui value
  */
-function bui(dmc: number, dc: number) {
+export function bui(dmc: number, dc: number) {
   // Eq. 27a
   let bui1 = dmc == 0 && dc == 0 ? 0 : (0.8 * dc * dmc) / (dmc + 0.4 * dc);
   // Eq. 27b - next 3 lines

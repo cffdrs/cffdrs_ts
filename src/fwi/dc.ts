@@ -26,7 +26,7 @@
  * @param {boolean} [lat_adjust=true] - Latitude adjustment
  * @returns {number} A single dc value
  */
-function dc(
+export function dc(
   dc_yda: number,
   temp: number,
   rh: number,

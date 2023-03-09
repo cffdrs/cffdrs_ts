@@ -25,7 +25,7 @@
  * @param {number} ws - Wind speed (km/h)
  * @returns {number} A single ffmc value
  */
-function ffmc(
+export function ffmc(
   ffmc_yda: number,
   temp: number,
   rh: number,

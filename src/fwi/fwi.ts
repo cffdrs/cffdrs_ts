@@ -21,7 +21,7 @@
  * @param {number} bui - Buildup Index
  * @returns {number} A single fwi value
  */
-function fwi(isi: number, bui: number) {
+export function fwi(isi: number, bui: number) {
   // FIX: works for now
   const exp = Math.exp;
   const log = Math.log;
