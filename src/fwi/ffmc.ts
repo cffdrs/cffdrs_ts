@@ -75,11 +75,11 @@ export function ffmc(
   let wm = wmo < ed && wmo < ew ? ew - (ew - wmo) / (10 ** x) : wmo;
   // Eq. 7a (ko) Log wetting rate at the normal
   //  temperature of 21.1 C
-  z =
-    wmo > ed
-      ? 0.424 * ((1 - rh / 100) ** 1.7) +
-      0.0694 * sqrt(ws) * ((1 - rh / 100) ** 8)
-      : z;
+  z = (
+    wmo > ed ?
+      0.424 * (1 - (rh / 100) ** 1.7) +
+      0.0694 * sqrt(ws) * (1 - (rh / 100) ** 8)
+      : z);
   // Eq. 7b Affect of temperature on  wetting rate
   x = z * 0.581 * exp(0.0365 * temp);
   // Eq. 9
