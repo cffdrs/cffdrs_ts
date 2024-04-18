@@ -31,7 +31,7 @@ export function isi(ffmc: number, ws: number, fbpMod: boolean = false) {
       ? 12 * (1 - exp(-0.0818 * (ws - 28)))
       : exp(0.05039 * ws);
   //Eq. 25 - Fine Fuel Moisture
-  const fF = 91.9 * exp(-0.1386 * fm) * (1 + (fm ^ 5.31) / 49300000);
+  const fF = 91.9 * exp(-0.1386 * fm) * (1 + (fm ** 5.31) / 49300000);
   //Eq. 26 - Spread Index Equation
   const isi1 = 0.208 * fW * fF;
   return isi1;

@@ -45,8 +45,8 @@ export function ffmc(
     prec > 0.5
       ? wmo > 150
         ? wmo +
-          0.0015 * (wmo - 150) * (wmo - 150) * sqrt(ra) +
-          42.5 * ra * exp(-100 / (251 - wmo)) * (1 - exp(-6.93 / ra))
+        0.0015 * (wmo - 150) * (wmo - 150) * sqrt(ra) +
+        42.5 * ra * exp(-100 / (251 - wmo)) * (1 - exp(-6.93 / ra))
         : wmo + 42.5 * ra * exp(-100 / (251 - wmo)) * (1 - exp(-6.93 / ra))
       : wmo;
   // The real moisture content of pine litter ranges up to about 250 percent,
@@ -54,36 +54,36 @@ export function ffmc(
   wmo = wmo > 250 ? 250 : wmo;
   // Eq. 4 Equilibrium moisture content from drying
   const ed =
-    0.942 * (rh ^ 0.679) +
+    0.942 * (rh ** 0.679) +
     11 * exp((rh - 100) / 10) +
     0.18 * (21.1 - temp) * (1 - 1 / exp(rh * 0.115));
   // Eq. 5 Equilibrium moisture content from wetting
   const ew =
-    0.618 * (rh ^ 0.753) +
+    0.618 * (rh ** 0.753) +
     10 * exp((rh - 100) / 10) +
     0.18 * (21.1 - temp) * (1 - 1 / exp(rh * 0.115));
   // Eq. 6a (ko) Log drying rate at the normal
   //  temperature of 21.1 C
   let z =
     wmo < ed && wmo < ew
-      ? 0.424 * (1 - (((100 - rh) / 100) ^ 1.7)) +
-        0.0694 * sqrt(ws) * ((1 - (100 - rh) / 100) ^ 8)
+      ? 0.424 * (1 - (((100 - rh) / 100) ** 1.7)) +
+      0.0694 * sqrt(ws) * ((1 - (100 - rh) / 100) ** 8)
       : 0;
   // Eq. 6b Affect of temperature on  drying rate
   let x = z * 0.581 * exp(0.0365 * temp);
   // Eq. 8
-  let wm = wmo < ed && wmo < ew ? ew - (ew - wmo) / (10 ^ x) : wmo;
+  let wm = wmo < ed && wmo < ew ? ew - (ew - wmo) / (10 ** x) : wmo;
   // Eq. 7a (ko) Log wetting rate at the normal
   //  temperature of 21.1 C
   z =
     wmo > ed
-      ? 0.424 * ((1 - rh / 100) ^ 1.7) +
-        0.0694 * sqrt(ws) * ((1 - rh / 100) ^ 8)
+      ? 0.424 * ((1 - rh / 100) ** 1.7) +
+      0.0694 * sqrt(ws) * ((1 - rh / 100) ** 8)
       : z;
   // Eq. 7b Affect of temperature on  wetting rate
   x = z * 0.581 * exp(0.0365 * temp);
   // Eq. 9
-  wm = wmo > ed ? ed + (wmo - ed) / (10 ^ x) : wm;
+  wm = wmo > ed ? ed + (wmo - ed) / (10 ** x) : wm;
   // Eq. 10 Final ffmc calculation
   let ffmc1 = (59.5 * (250 - wm)) / (147.27723 + wm);
   // Constraints
