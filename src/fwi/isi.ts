@@ -22,7 +22,7 @@ export function isi(ffmc: number, ws: number, fbpMod: boolean = false) {
   // FIX: works for now
   const exp = Math.exp;
   // Eq. 10 - Moisture content
-  const fm = (147.2 * (101 - ffmc)) / (59.5 + ffmc);
+  const fm = (147.27723 * (101 - ffmc)) / (59.5 + ffmc);
   // Eq. 24 - Wind Effect
   // the ifelse, also takes care of the ISI modification for the fbp functions
   // This modification is Equation 53a in FCFDG (1992)
