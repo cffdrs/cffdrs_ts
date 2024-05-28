@@ -21,8 +21,10 @@
 export function isi(ffmc: number, ws: number, fbpMod: boolean = false) {
   // FIX: works for now
   const exp = Math.exp;
+  // used in conversion between FFMC and moisture content
+  const FFMC_COEFFICIENT = 250.0 * 59.5 / 101.0;
   // Eq. 10 - Moisture content
-  const fm = (147.27723 * (101 - ffmc)) / (59.5 + ffmc);
+  const fm = (FFMC_COEFFICIENT * (101 - ffmc)) / (59.5 + ffmc);
   // Eq. 24 - Wind Effect
   // the ifelse, also takes care of the ISI modification for the fbp functions
   // This modification is Equation 53a in FCFDG (1992)
