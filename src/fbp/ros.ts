@@ -59,37 +59,46 @@ export function ros(
   const pow = Math.pow;
 
   // ---- M-fuel mixedwood ROS (Eqs. 27, 28) ----
+  // Mirrors R cffdrs_r's rate_of_spread_extended: the conifer (C2) and
+  // deciduous (D1) component RATES are blended at the INTERMEDIATE (RSI) level —
+  // i.e. computed with NoBUI (-1) so each component's buildup effect is neutral
+  // (be = 1) — and the mixedwood buildup effect is then applied ONCE to the
+  // blend. Applying each component's own BE before blending (and omitting the
+  // M-fuel BE) diverges from R by several percent.
   if (ft === "M1" || ft === "M2") {
     const pcEff = pc === undefined ? 50 : pc;
     const ph = 100 - pcEff;
-    const rosC2 = ros("C2", isi, bui, fmc, sfc, pc, pdf, cur, cbh);
-    const rosD1 = ros("D1", isi, bui, fmc, sfc, pc, pdf, cur, cbh);
-    if (ft === "M1") {
-      // Eq. 27
-      return (pcEff / 100) * rosC2 + (ph / 100) * rosD1;
-    }
-    // M-2 Eq. 28 — green deciduous component damped by factor 0.2
-    return (pcEff / 100) * rosC2 + 0.2 * (ph / 100) * rosD1;
+    const NoBUI = -1;
+    const rsiC2 = ros("C2", isi, NoBUI, fmc, sfc, pc, pdf, cur, cbh);
+    const rsiD1 = ros("D1", isi, NoBUI, fmc, sfc, pc, pdf, cur, cbh);
+    // Eq. 27 (M1) / Eq. 28 (M2 — green deciduous component damped by 0.2).
+    const blended =
+      ft === "M1"
+        ? (pcEff / 100) * rsiC2 + (ph / 100) * rsiD1
+        : (pcEff / 100) * rsiC2 + 0.2 * (ph / 100) * rsiD1;
+    return blended * be(ft, bui); // Eq. 55 buildup effect applied once
   }
 
-  // ---- M-3 / M-4 with PDF-dependent a, b, c (Eqs. 29-34) ----
+  // ---- M-3 / M-4 (Wotton et al. 2009) ----
+  // R uses the FBP fuel-TABLE coefficients (M3: a=120,b=0.0572,c0=1.4;
+  // M4: a=100,b=0.0404,c0=1.48) for the dead-fir component RSI — NOT the
+  // PDF-dependent Eqs. 29-34 forms — blended with a NoBUI D1 component, then
+  // the mixedwood buildup effect applied once. (The ISF inversion in
+  // slopeAdjustment already uses these same table constants.)
   if (ft === "M3" || ft === "M4") {
     const pdfEff = pdf === undefined ? 35 : pdf;
-    let a: number, b: number, c: number;
-    if (ft === "M3") {
-      // Eqs. 29, 30, 31
-      a = 170 * exp(-35.0 / pdfEff);
-      b = 0.082 * exp(-36.0 / pdfEff);
-      c = 1.698 - 0.00303 * pdfEff;
-    } else {
-      // Eqs. 32 (errata: -33.5), 33, 34
-      a = 140 * exp(-33.5 / pdfEff);
-      b = 0.0404;
-      c = 3.02 * exp(-0.00714 * pdfEff);
-    }
-    const rsi = rsi_generic(a, b, c, isi);
-    // BUI effect (Eq. 55)
-    return rsi * be(ft, bui);
+    const NoBUI = -1;
+    const rsiD1 = ros("D1", isi, NoBUI, fmc, sfc, pc, pdf, cur, cbh);
+    const rsiM =
+      ft === "M3"
+        ? rsi_generic(120, 0.0572, 1.4, isi)
+        : rsi_generic(100, 0.0404, 1.48, isi);
+    // Eq. 29 (M3) / Eq. 33 (M4 — D1 component damped by 0.2).
+    const blended =
+      ft === "M3"
+        ? (pdfEff / 100) * rsiM + (1 - pdfEff / 100) * rsiD1
+        : (pdfEff / 100) * rsiM + 0.2 * (1 - pdfEff / 100) * rsiD1;
+    return blended * be(ft, bui); // Eq. 55 buildup effect applied once
   }
 
   // ---- O-1 grass with curing factor (Eqs. 35, 36) ----

@@ -10,4 +10,15 @@ export * from "./tfc";
 export * from "./cfc";
 export * from "./fi";
 export * from "./ft";
+// §8 secondary FBP primitives
+export * from "./lb";
+export * from "./bros";
+export * from "./fros";
+export * from "./accAlpha";
+export * from "./rosAtTime";
+export * from "./distanceAtTime";
+export * from "./lbAtTime";
+export * from "./rosAtTheta";
+export * from "./crownBaseHeight";
+export * from "./crownFuelConsumption";
 export * from "./fbp";

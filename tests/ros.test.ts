@@ -1,5 +1,6 @@
 /** ST-X-3 Eqs. 26-36, 62-65 — Rate of Spread per fuel type. */
 import ros from "../src/fbp/ros";
+import be from "../src/fbp/be";
 import { getFuel } from "../src/fbp/fuelTypes";
 
 describe("ros — rate of spread", () => {
@@ -18,40 +19,42 @@ describe("ros — rate of spread", () => {
     expect(ros("C2", 8, 64, 100, 2)).toBeCloseTo(rsi, 6);
   });
 
-  it("M-1 Eq. 27 — PC-weighted C-2/D-1 ROS", () => {
-    const pc = 60;
-    const rosC2 = ros("C2", 8, 60, 100, 2);
-    const rosD1 = ros("D1", 8, 60, 100, 2);
-    expect(ros("M1", 8, 60, 100, 2, pc)).toBeCloseTo(
-      (pc / 100) * rosC2 + ((100 - pc) / 100) * rosD1, 6);
+  // Mixedwood ROS mirrors R cffdrs_r: component RATES are blended at the RSI
+  // (NoBUI) level, then the M-fuel buildup effect is applied ONCE. The NoBUI
+  // components are obtained by calling ros() with bui = -1 (be = 1).
+  it("M-1 Eq. 27 — PC-weighted C-2/D-1 RSI, M-fuel BE applied once", () => {
+    const pc = 60, bui = 60;
+    const rsiC2 = ros("C2", 8, -1, 100, 2);
+    const rsiD1 = ros("D1", 8, -1, 100, 2);
+    const expected = ((pc / 100) * rsiC2 + ((100 - pc) / 100) * rsiD1) * be("M1", bui);
+    expect(ros("M1", 8, bui, 100, 2, pc)).toBeCloseTo(expected, 6);
   });
 
   it("M-2 Eq. 28 — green deciduous component damped by 0.2", () => {
-    const pc = 60;
-    const rosC2 = ros("C2", 8, 60, 100, 2);
-    const rosD1 = ros("D1", 8, 60, 100, 2);
-    expect(ros("M2", 8, 60, 100, 2, pc)).toBeCloseTo(
-      (pc / 100) * rosC2 + 0.2 * ((100 - pc) / 100) * rosD1, 6);
+    const pc = 60, bui = 60;
+    const rsiC2 = ros("C2", 8, -1, 100, 2);
+    const rsiD1 = ros("D1", 8, -1, 100, 2);
+    const expected =
+      ((pc / 100) * rsiC2 + 0.2 * ((100 - pc) / 100) * rsiD1) * be("M2", bui);
+    expect(ros("M2", 8, bui, 100, 2, pc)).toBeCloseTo(expected, 6);
   });
 
-  it("M-3 Eqs. 29-31 — coefficients derived from PDF", () => {
-    const pdf = 30;
-    const a = 170 * exp(-35.0 / pdf);
-    const b = 0.082 * exp(-36.0 / pdf);
-    const c = 1.698 - 0.00303 * pdf;
-    const rsi = a * pow(1 - exp(-b * 8), c);
-    // BUI0=50 for M-3 → BE != 1 at BUI=60
-    // Test the RSI piece only by checking at BUI=BUI0
-    expect(ros("M3", 8, 50, 100, 2, undefined, pdf)).toBeCloseTo(rsi, 6);
+  it("M-3 Eq. 29 — table-constant dead-fir RSI blended with NoBUI D-1", () => {
+    const pdf = 30, bui = 60;
+    const rsiM3 = 120 * pow(1 - exp(-0.0572 * 8), 1.4); // FBP fuel-table coeffs
+    const rsiD1 = ros("D1", 8, -1, 100, 2);
+    const expected =
+      ((pdf / 100) * rsiM3 + (1 - pdf / 100) * rsiD1) * be("M3", bui);
+    expect(ros("M3", 8, bui, 100, 2, undefined, pdf)).toBeCloseTo(expected, 6);
   });
 
-  it("M-4 Eq. 32 (errata: -33.5), 33, 34", () => {
-    const pdf = 30;
-    const a = 140 * exp(-33.5 / pdf);
-    const b = 0.0404;
-    const c = 3.02 * exp(-0.00714 * pdf);
-    const rsi = a * pow(1 - exp(-b * 8), c);
-    expect(ros("M4", 8, 50, 100, 2, undefined, pdf)).toBeCloseTo(rsi, 6);
+  it("M-4 Eq. 33 — table-constant RSI, D-1 component damped by 0.2", () => {
+    const pdf = 30, bui = 60;
+    const rsiM4 = 100 * pow(1 - exp(-0.0404 * 8), 1.48); // FBP fuel-table coeffs
+    const rsiD1 = ros("D1", 8, -1, 100, 2);
+    const expected =
+      ((pdf / 100) * rsiM4 + 0.2 * (1 - pdf / 100) * rsiD1) * be("M4", bui);
+    expect(ros("M4", 8, bui, 100, 2, undefined, pdf)).toBeCloseTo(expected, 6);
   });
 
   // Curing factor: GLC-X-10 (Wotton, Alexander & Taylor 2009) smooth function,

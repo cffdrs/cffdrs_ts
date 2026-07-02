@@ -26,30 +26,8 @@ export function fmc(
   jd: number,
   jd_min?: number
 ): number {
-  // ST-X-3 expresses longitude as positive west. If the caller passes the
-  // signed convention (W negative, common in GIS), convert to the published
-  // positive-west form before evaluating Eqs. 1 / 3.
-  const lonW = lon < 0 ? -lon : lon;
-
-  let d0: number;
-  if (jd_min !== undefined) {
-    d0 = jd_min;
-  } else {
-    if (elev <= 0) {
-      // Eq. 1
-      const latn = 46 + 23.4 * Math.exp(-0.0360 * (150 - lonW));
-      // Eq. 2
-      d0 = 151 * (lat / latn);
-    } else {
-      // Eq. 3
-      const latn = 43 + 33.7 * Math.exp(-0.0351 * (150 - lonW));
-      // Eq. 4
-      d0 = 142.1 * (lat / latn) + 0.0172 * elev;
-    }
-    // Date of minimum FMC is a calendar day — round to the nearest integer
-    // before computing the day offset (Eq. 5).
-    d0 = Math.round(d0);
-  }
+  const d0 =
+    jd_min !== undefined ? jd_min : foliarMoistureContentMinimum(lat, lon, elev);
 
   // Eq. 5
   const nd = Math.abs(jd - d0);
@@ -58,6 +36,37 @@ export function fmc(
   if (nd < 30) return 85 + 0.0189 * nd * nd;
   if (nd < 50) return 32.9 + 3.17 * nd - 0.0288 * nd * nd;
   return 120;
+}
+
+/**
+ * Date of minimum foliar moisture content (D0) — the calendar day of year on
+ * which conifer foliar moisture bottoms out, from station location (Eqs. 1-4).
+ * Mirrors R cffdrs_r's `foliar_moisture_content_minimum`.
+ *
+ * @param {number} lat  Latitude in decimal degrees.
+ * @param {number} lon  Longitude in decimal degrees (either sign convention).
+ * @param {number} elev Station elevation in metres (<= 0 uses the no-elev form).
+ * @returns {number} Date of minimum FMC, rounded to the nearest day.
+ */
+export function foliarMoistureContentMinimum(
+  lat: number,
+  lon: number,
+  elev: number
+): number {
+  // ST-X-3 expresses longitude as positive west; convert the signed convention.
+  const lonW = lon < 0 ? -lon : lon;
+  let d0: number;
+  if (elev <= 0) {
+    // Eqs. 1, 2
+    const latn = 46 + 23.4 * Math.exp(-0.036 * (150 - lonW));
+    d0 = 151 * (lat / latn);
+  } else {
+    // Eqs. 3, 4
+    const latn = 43 + 33.7 * Math.exp(-0.0351 * (150 - lonW));
+    d0 = 142.1 * (lat / latn) + 0.0172 * elev;
+  }
+  // Date of minimum FMC is a calendar day — round to the nearest integer (Eq. 5).
+  return Math.round(d0);
 }
 
 export default fmc;

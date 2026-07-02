@@ -22,6 +22,15 @@ import { tfc } from "../../src/fbp/tfc";
 import { fi } from "../../src/fbp/fi";
 import { fmc } from "../../src/fbp/fmc";
 import { slopeAdjustment } from "../../src/fbp/slopeAdjustment";
+import { lb } from "../../src/fbp/lb";
+import { bros } from "../../src/fbp/bros";
+import { fros } from "../../src/fbp/fros";
+import { rosAtTime } from "../../src/fbp/rosAtTime";
+import { distanceAtTime } from "../../src/fbp/distanceAtTime";
+import { lbAtTime } from "../../src/fbp/lbAtTime";
+import { rosAtTheta } from "../../src/fbp/rosAtTheta";
+import { crownBaseHeight } from "../../src/fbp/crownBaseHeight";
+import { fbp, FbpOutput } from "../../src/fbp/fbp";
 import { isi } from "../../src/fwi/isi";
 import { bui } from "../../src/fwi/bui";
 import {
@@ -281,6 +290,32 @@ describe("parity: ros (RateOfSpread)", () => {
       };
     });
   });
+
+  // Mixedwood M1-M4 are excluded from the main assertion above by the crown-fuel
+  // FMC filter (they carry FMC=0/218/437 in the fixture) and the BUI<=400 cap
+  // (their rows run to BUI~875). But M-fuel ROS does NOT use FMC or SFC — it
+  // blends the conifer/deciduous RSIs (at NoBUI) and applies the mixedwood
+  // buildup effect once. So they are validated here across the full fuzzed
+  // domain (BUI>0 only, to skip the BE(0) boundary). This is the assertion that
+  // pins the mixedwood ROS form (BE-once + table constants) to R's gold.
+  test("ros mixedwood M1-M4 matches R (full domain; BE-once, table constants)", () => {
+    assertClean("ros-mixedwood", rows, (r: Row) => {
+      const ft = fuel(r.FUELTYPE);
+      if (ft !== "M1" && ft !== "M2" && ft !== "M3" && ft !== "M4") return null;
+      const expected = num(r.RateOfSpread);
+      if (!isFinite(expected)) return null;
+      const buiv = num(r.BUI);
+      if (!(buiv > 0)) return null; // BE(0) boundary handled in the `be` describe
+      const pcv = num(r.PC), pdfv = num(r.PDF);
+      // M1/M2 need PC; M3/M4 need PDF — R defaults are 50 / 35 when absent.
+      const pc = isFinite(pcv) ? pcv : 50;
+      const pdf = isFinite(pdfv) ? pdfv : 35;
+      return {
+        actual: ros(ft, num(r.ISI), buiv, num(r.FMC), num(r.SFC), pc, pdf, num(r.CC), num(r.CBH) || undefined),
+        expected,
+      };
+    });
+  });
 });
 
 // ====================================================================
@@ -504,29 +539,365 @@ describe("parity: slopeAdjustment (Slope WSV/RAZ)", () => {
 });
 
 // ====================================================================
-// Documented gaps — unmapped / FBP §8-not-implemented primitives.
-// Skipped placeholders so the coverage gap is visible in the suite.
+// LengthToBreadth — lb(fueltype, wsv)  [§8, ST-X-3 Eq. 79; grass Eq. 80 (GLC-X-10)]
+//   LengthToBreadthRatio.csv cols: FUELTYPE,WSV,LengthToBreadthRatio.
+//   WSV is net effective wind speed (km/h), NOT an angle — no rad conversion.
+//   R returns NA for negative WSV (the non-grass branch raises a negative base to
+//   a fractional power -> NaN), so NA-expected rows are out of domain.
 // ====================================================================
-describe("parity: documented gaps (not yet implemented / unmapped)", () => {
-  // Slope.csv gives expected WSV/RAZ, which our library only produces composed
-  // inside fbp() (no standalone wind-vector primitive). Attempted: map Slope.csv
-  // rows into fbp() with angles converted rad->deg (fixture angles are radians).
-  // Result: 1382/1828 in-domain rows diverge beyond EPS. The gap is NOT a unit
-  // bug (values are close, e.g. WSV 154.88 vs 153.92) — it's that fbp()'s WSE
-  // back-inversion couples ros->isf->rsz with FFMC and fuel-specific ISF inverses
-  // that the bare Slope vectors don't isolate, and the R fixture fuzzes GS up to
-  // 162% and WS up to ~219 km/h (well past the GS>=70 saturation and operational
-  // ranges). A clean comparison is genuinely unreliable, so per instruction this
-  // stays a labeled skip rather than a forced/broken test. The slope FACTOR (SF)
-  // itself is now fully validated against R in tests/sf.test.ts.
-  test.skip("CrownBaseHeight — fuel-type CBH lookup not exposed as a mapped primitive", () => {});
-  test.skip("BackRateOfSpread — §8 back ROS not implemented", () => {});
-  test.skip("FlankRateOfSpread — §8 flank ROS not implemented", () => {});
-  test.skip("LengthToBreadth — §8 L/B ratio not implemented", () => {});
-  test.skip("DistanceAtTime — §8 elapsed-time distance not implemented", () => {});
-  test.skip("RateOfSpreadAtTime / RateOfSpreadExtended — §8 time-dependent ROS not implemented", () => {});
-  test.skip("Simard — Simard slope/azimuth vector math not implemented", () => {});
+describe("parity: lb (LengthToBreadth §8)", () => {
+  const rows = readCsv("LengthToBreadthRatio.csv");
+  test("lb matches R within EPS (real fuels; NA/non-burnable excluded)", () => {
+    assertClean("lb", rows, (r: Row) => {
+      const expected = num(r.LengthToBreadthRatio);
+      if (!isFinite(expected)) return null; // R wrote NA (WSV<0) -> out of domain
+      const ft = fuel(r.FUELTYPE);
+      if (!REAL_FUELS.has(ft)) return null; // NF/WA non-burnable -> LB undefined
+      return { actual: lb(ft, num(r.WSV)), expected };
+    });
+  });
 });
+
+// ====================================================================
+// BackRateOfSpread — bros(fueltype,ffmc,bui,wsv,fmc,sfc,pc,pdf,cc,cbh)  [§8]
+//   BackRateOfSpread.csv cols: FUELTYPE,FFMC,BUI,WSV,FMC,SFC,PC,PDF,CC,CBH,BackRateOfSpread.
+//   BROS derives a back-fire ISI (BfW=e^(-0.05039*WSV), BISI=0.208*BfW*fF) then
+//   feeds it to rate_of_spread. Same physical-input domain as the ros() primitive:
+//   the R fixture fuzzes SFC/FMC/ISI to impossible magnitudes. WSV<0 makes the
+//   back-fire wind function blow up (BfW=e^(+..)) — non-physical, excluded.
+// ====================================================================
+describe("parity: bros (BackRateOfSpread §8)", () => {
+  const rows = readCsv("BackRateOfSpread.csv");
+  test("bros matches R within EPS — EXPECTED FAIL mirrors ros (O1a/O1b grass curing)", () => {
+    assertClean("bros", rows, (r: Row) => {
+      const expected = num(r.BackRateOfSpread);
+      if (!isFinite(expected)) return null; // NA -> out of domain
+      const ft = fuel(r.FUELTYPE);
+      if (!REAL_FUELS.has(ft)) return null; // NF/WA non-burnable
+      const ffmc = num(r.FFMC), bui = num(r.BUI), wsv = num(r.WSV);
+      const fmcv = num(r.FMC), sfcv = num(r.SFC);
+      // Same operational domain as the ros() parity test (bros is ros on a
+      // back-derived ISI), plus WSV >= 0 (negative WSV is non-physical and blows
+      // up the back-fire wind function).
+      if (!(ffmc >= 0 && ffmc <= 101)) return null;
+      if (!(wsv >= 0)) return null;
+      if (!(sfcv >= 0 && sfcv <= 50)) return null;
+      if (!(bui > 0 && bui <= 400)) return null;
+      const isGrass = ft === "O1a" || ft === "O1b";
+      if (!isGrass && !(fmcv >= 60 && fmcv <= 250)) return null;
+      const cbh = num(r.CBH);
+      return {
+        actual: bros(ft, ffmc, bui, wsv, fmcv, sfcv, num(r.PC), num(r.PDF), num(r.CC), cbh || undefined),
+        expected,
+      };
+    });
+  });
+});
+
+// ====================================================================
+// FlankRateOfSpread — fros(ros, bros, lb)  [§8, ST-X-3 Eq. 89]
+//   FlankRateOfSpread.csv cols: ROS,BROS,LB,FlankRateOfSpread.
+//   Pure arithmetic: (ROS+BROS)/(2*LB). Direct inputs, no fuel type. TS matches
+//   R on every row where the result is defined; LB=0 (division by zero) is the
+//   only out-of-domain case. R fuzzes LB negative — kept in (deterministic).
+// ====================================================================
+describe("parity: fros (FlankRateOfSpread §8)", () => {
+  const rows = readCsv("FlankRateOfSpread.csv");
+  test("fros matches R within EPS (all rows; LB=0 excluded)", () => {
+    assertClean("fros", rows, (r: Row) => {
+      const expected = num(r.FlankRateOfSpread);
+      if (!isFinite(expected)) return null; // NA -> out of domain
+      const lbv = num(r.LB);
+      if (lbv === 0) return null; // division by zero -> undefined
+      return { actual: fros(num(r.ROS), num(r.BROS), lbv), expected };
+    });
+  });
+});
+
+// ====================================================================
+// RateOfSpreadAtTime — rosAtTime(fueltype, roseq, hr, cfb)  [§8, Eqs. 70/72]
+//   RateOfSpreadAtTime.csv cols: FUELTYPE,ROSeq,HR,CFB,RateOfSpreadAtTime.
+//   ROSt = ROSeq*(1 - e^(-alpha*HR)); alpha per accAlpha (Eq. 72). Closed fuels
+//   with CFB<0 raise a negative base to a fractional power -> R NaN -> NA, so
+//   CFB is bounded to its physical [0,1] range for non-open fuels.
+// ====================================================================
+describe("parity: rosAtTime (RateOfSpreadAtTime §8)", () => {
+  const rows = readCsv("RateOfSpreadAtTime.csv");
+  const OPEN = new Set(["C1", "O1a", "O1b", "S1", "S2", "S3", "D1"]);
+  test("rosAtTime matches R within EPS (real fuels; CFB in [0,1] for closed)", () => {
+    assertClean("rosAtTime", rows, (r: Row) => {
+      const expected = num(r.RateOfSpreadAtTime);
+      if (!isFinite(expected)) return null; // NA -> out of domain
+      const ft = fuel(r.FUELTYPE);
+      if (!REAL_FUELS.has(ft)) return null; // NF/WA non-burnable
+      const cfbv = num(r.CFB);
+      if (!OPEN.has(ft) && !(cfbv >= 0 && cfbv <= 1)) return null; // CFB physical range
+      return { actual: rosAtTime(ft, num(r.ROSeq), num(r.HR), cfbv), expected };
+    });
+  });
+});
+
+// ====================================================================
+// DistanceAtTime — distanceAtTime(fueltype, roseq, hr, cfb)  [§8, Eqs. 71/72]
+//   DistanceAtTime.csv cols: FUELTYPE,ROSeq,HR,CFB,DistanceAtTime.
+//   DISTt = ROSeq*(HR + e^(-alpha*HR)/alpha - 1/alpha); alpha per accAlpha.
+//   Same CFB physical bounding as rosAtTime (closed fuels need CFB in [0,1]).
+// ====================================================================
+describe("parity: distanceAtTime (DistanceAtTime §8)", () => {
+  const rows = readCsv("DistanceAtTime.csv");
+  const OPEN = new Set(["C1", "O1a", "O1b", "S1", "S2", "S3", "D1"]);
+  test("distanceAtTime matches R within EPS (real fuels; CFB in [0,1] for closed)", () => {
+    assertClean("distanceAtTime", rows, (r: Row) => {
+      const expected = num(r.DistanceAtTime);
+      if (!isFinite(expected)) return null; // NA -> out of domain
+      const ft = fuel(r.FUELTYPE);
+      if (!REAL_FUELS.has(ft)) return null; // NF/WA non-burnable
+      const cfbv = num(r.CFB);
+      if (!OPEN.has(ft) && !(cfbv >= 0 && cfbv <= 1)) return null; // CFB physical range
+      return { actual: distanceAtTime(ft, num(r.ROSeq), num(r.HR), cfbv), expected };
+    });
+  });
+});
+
+// ====================================================================
+// LengthToBreadthRatioAtTime — lbAtTime(fueltype, lb, hr, cfb)  [§8, Eq. 81/72]
+//   LengthToBreadthRatioAtTime.csv cols: FUELTYPE,LB,HR,CFB,LengthToBreadthRatioAtTime.
+//   LBt = (LB-1)*(1 - e^(-alpha*HR)) + 1; alpha per accAlpha. Same CFB bounding.
+// ====================================================================
+describe("parity: lbAtTime (LengthToBreadthRatioAtTime §8)", () => {
+  const rows = readCsv("LengthToBreadthRatioAtTime.csv");
+  const OPEN = new Set(["C1", "O1a", "O1b", "S1", "S2", "S3", "D1"]);
+  test("lbAtTime matches R within EPS (real fuels; CFB in [0,1] for closed)", () => {
+    assertClean("lbAtTime", rows, (r: Row) => {
+      const expected = num(r.LengthToBreadthRatioAtTime);
+      if (!isFinite(expected)) return null; // NA -> out of domain
+      const ft = fuel(r.FUELTYPE);
+      if (!REAL_FUELS.has(ft)) return null; // NF/WA non-burnable
+      const cfbv = num(r.CFB);
+      if (!OPEN.has(ft) && !(cfbv >= 0 && cfbv <= 1)) return null; // CFB physical range
+      return { actual: lbAtTime(ft, num(r.LB), num(r.HR), cfbv), expected };
+    });
+  });
+});
+
+// ====================================================================
+// RateOfSpreadAtTheta — rosAtTheta(ros, fros, bros, thetaDeg)  [§8, Eq. 94]
+//   RateOfSpreadAtTheta.csv cols: ROS,FROS,BROS,THETA,RateOfSpreadAtTheta.
+//   R applies cos/sin to THETA in RADIANS; our API takes DEGREES and converts
+//   internally, so the fixture THETA (radians) is divided by DEG on input — the
+//   round-trip reproduces R's exact cos(THETA). Wotton et al. 2009.
+// ====================================================================
+describe("parity: rosAtTheta (RateOfSpreadAtTheta §8)", () => {
+  const rows = readCsv("RateOfSpreadAtTheta.csv");
+  const DEG = Math.PI / 180;
+  test("rosAtTheta matches R within EPS (defined rows)", () => {
+    assertClean("rosAtTheta", rows, (r: Row) => {
+      const expected = num(r.RateOfSpreadAtTheta);
+      if (!isFinite(expected)) return null; // NA -> out of domain
+      return {
+        actual: rosAtTheta(num(r.ROS), num(r.FROS), num(r.BROS), num(r.THETA) / DEG),
+        expected,
+      };
+    });
+  });
+});
+
+// ====================================================================
+// CrownBaseHeight — crownBaseHeight(fueltype, cbh, sd, sh)  [fuel-type CBH lookup]
+//   CrownBaseHeight.csv cols: FUELTYPE,CBH,SD,SH,CrownBaseHeight.
+//   Returns the supplied CBH when in (0,50]; otherwise the fuel default (or the
+//   C6 stand-derived CBH from SD/SH). Mirrors R's crown_base_height exactly.
+// ====================================================================
+describe("parity: crownBaseHeight (CrownBaseHeight lookup)", () => {
+  const rows = readCsv("CrownBaseHeight.csv");
+  test("crownBaseHeight matches R within EPS (real fuels)", () => {
+    assertClean("crownBaseHeight", rows, (r: Row) => {
+      const expected = num(r.CrownBaseHeight);
+      if (!isFinite(expected)) return null; // NA -> out of domain
+      const ft = fuel(r.FUELTYPE);
+      if (!REAL_FUELS.has(ft)) return null; // NF/WA non-burnable
+      return { actual: crownBaseHeight(ft, num(r.CBH), num(r.SD), num(r.SH)), expected };
+    });
+  });
+});
+
+// ====================================================================
+// SYSTEM-LEVEL — fbp() end-to-end vs R's Secondary snapshot (fbp_04.csv over
+// test_fbp.csv). Maps R's fbp() input columns to our FbpInput (WD->WAZ=WD+180,
+// Aspect->SAZ=Aspect+180, GS->ps, hr[hours]->et[min], D0->jd_min, Accel->accel).
+// Validates every secondary output field against R at EPS.
+// ====================================================================
+describe("parity: fbp() system-level Secondary (fbp_04 over test_fbp)", () => {
+  const inputs = readCsv("test_fbp.csv", ";");
+  const gold = readCsv("fbp_04.csv"); // comma-separated, aligned by ID/row order
+
+  const mod360 = (a: number) => ((a % 360) + 360) % 360;
+
+  function runRow(r: Row): FbpOutput {
+    const ftCode = fuel(r.FuelType);
+    const grass = ftCode === "O1a" || ftCode === "O1b";
+    const mixedPC = ftCode === "M1" || ftCode === "M2";
+    const mixedPDF = ftCode === "M3" || ftCode === "M4";
+    const ccv = num(r.cc);
+    const gflv = num(r.GFL);
+    const d0v = num(r.D0);
+    const cbhv = num(r.CBH);
+    const cflv = num(r.CFL);
+    const aspect = isFinite(num(r.Aspect)) ? num(r.Aspect) : 0;
+    const wd = isFinite(num(r.WD)) ? num(r.WD) : 0; // R: NA wind direction -> 0
+    const ws = isFinite(num(r.WS)) ? num(r.WS) : 10; // R: NA wind speed -> 10
+    return fbp({
+      fueltype: ftCode,
+      ffmc: num(r.FFMC),
+      bui: num(r.BUIEff) === 0 ? 0 : num(r.BUI), // BUIEff disables buildup
+      ws,
+      waz: mod360(wd + 180), // R: WAZ = WD + pi
+      ps: num(r.GS),
+      saz: mod360(aspect + 180), // R: SAZ = ASPECT + pi
+      lat: num(r.LAT),
+      lon: num(r.LONG),
+      elev: isFinite(num(r.ELV)) ? num(r.ELV) : 0,
+      jd: num(r.Dj),
+      pc: mixedPC ? (isFinite(num(r.PC)) ? num(r.PC) : 50) : undefined,
+      pdf: mixedPDF ? (isFinite(num(r.PDF)) ? num(r.PDF) : 35) : undefined,
+      cur: grass ? (isFinite(ccv) ? ccv : 80) : undefined,
+      gfl: grass ? (isFinite(gflv) ? gflv : 0.35) : undefined,
+      cbh: isFinite(cbhv) && cbhv > 0 ? cbhv : undefined,
+      cfl: isFinite(cflv) && cflv > 0 ? cflv : undefined,
+      jd_min: isFinite(d0v) && d0v > 0 ? d0v : undefined,
+      et: num(r.hr) * 60, // hours -> minutes
+      accel: num(r.Accel),
+      theta: num(r.theta),
+    });
+  }
+
+  // Map each fbp_04 gold column to the FbpOutput field it validates.
+  const COLS: [string, keyof FbpOutput][] = [
+    ["BE", "be"], ["SF", "sf"], ["ISI", "isi"], ["FMC", "fmc"], ["D0", "d0"],
+    ["RSO", "rso"], ["CSI", "csi"], ["FROS", "fros"], ["BROS", "bros"],
+    ["HROSt", "hrost"], ["FROSt", "frost"], ["BROSt", "brost"],
+    ["FCFB", "fcfb"], ["BCFB", "bcfb"], ["FFI", "ffi"], ["BFI", "bfi"],
+    ["FTFC", "ftfc"], ["BTFC", "btfc"], ["TI", "ti"], ["FTI", "fti"],
+    ["BTI", "bti"], ["LB", "lb"], ["LBt", "lbt"], ["WSV", "wsv"],
+    ["DH", "dh"], ["DB", "db"], ["DF", "df"], ["TROS", "tros"],
+    ["TROSt", "trost"], ["TCFB", "tcfb"], ["TFI", "tfi"], ["TTFC", "ttfc"],
+    ["TTI", "tti"],
+  ];
+
+  test("fbp() Secondary matches R within EPS (all columns, all rows)", () => {
+    const outs = inputs.map(runRow);
+    const colFails: string[] = [];
+    for (const [gcol, field] of COLS) {
+      const bad: string[] = [];
+      for (let i = 0; i < gold.length; i++) {
+        const expected = num(gold[i][gcol]);
+        const actual = outs[i][field] as number;
+        if (Math.abs(expected) < 1e-4 && Math.abs(actual) < 1e-4) continue;
+        const re = relErr(actual, expected);
+        if (re > EPS) bad.push(`row${gold[i].ID}:exp=${expected},act=${(actual as number).toPrecision(5)},re=${re.toExponential(2)}`);
+      }
+      if (bad.length) colFails.push(`  ${gcol}->${String(field)}: ${bad.length} fail\n    ${bad.slice(0, 4).join("\n    ")}`);
+    }
+    // eslint-disable-next-line no-console
+    console.log(`[parity] fbp_04 system: ${COLS.length - colFails.length}/${COLS.length} columns clean`);
+    if (colFails.length) throw new Error(`fbp_04 divergent columns:\n${colFails.join("\n")}`);
+  });
+});
+
+// ====================================================================
+// SYSTEM-LEVEL — fbp() primary outputs vs R's ALL snapshot (fbp_06.csv). The
+// secondary fields are already covered by the fbp_04 test above; here we pin the
+// PRIMARY columns (ROS, CFB, CFC, TFC, HFI, SFC, RAZ, FD) that no prior test
+// validated against R gold — the check that surfaced the mixedwood ROS bug.
+// ====================================================================
+describe("parity: fbp() system-level Primary (fbp_06 over test_fbp)", () => {
+  const inputs = readCsv("test_fbp.csv", ";");
+  const gold = readCsv("fbp_06.csv");
+  const mod360 = (a: number) => ((a % 360) + 360) % 360;
+  const DEG = Math.PI / 180;
+  const angDiff = (a: number, b: number) => {
+    let d = Math.abs(a - b) % 360;
+    if (d > 180) d = 360 - d;
+    return d;
+  };
+
+  function runRow(r: Row): FbpOutput {
+    const ftCode = fuel(r.FuelType);
+    const grass = ftCode === "O1a" || ftCode === "O1b";
+    const mixedPC = ftCode === "M1" || ftCode === "M2";
+    const mixedPDF = ftCode === "M3" || ftCode === "M4";
+    const aspect = isFinite(num(r.Aspect)) ? num(r.Aspect) : 0;
+    const wd = isFinite(num(r.WD)) ? num(r.WD) : 0;
+    const ws = isFinite(num(r.WS)) ? num(r.WS) : 10;
+    return fbp({
+      fueltype: ftCode, ffmc: num(r.FFMC),
+      bui: num(r.BUIEff) === 0 ? 0 : num(r.BUI),
+      ws, waz: mod360(wd + 180), ps: num(r.GS), saz: mod360(aspect + 180),
+      lat: num(r.LAT), lon: num(r.LONG), elev: isFinite(num(r.ELV)) ? num(r.ELV) : 0,
+      jd: num(r.Dj),
+      pc: mixedPC ? (isFinite(num(r.PC)) ? num(r.PC) : 50) : undefined,
+      pdf: mixedPDF ? (isFinite(num(r.PDF)) ? num(r.PDF) : 35) : undefined,
+      cur: grass ? (isFinite(num(r.cc)) ? num(r.cc) : 80) : undefined,
+      gfl: grass ? (isFinite(num(r.GFL)) ? num(r.GFL) : 0.35) : undefined,
+      cbh: isFinite(num(r.CBH)) && num(r.CBH) > 0 ? num(r.CBH) : undefined,
+      cfl: isFinite(num(r.CFL)) && num(r.CFL) > 0 ? num(r.CFL) : undefined,
+      jd_min: isFinite(num(r.D0)) && num(r.D0) > 0 ? num(r.D0) : undefined,
+      et: num(r.hr) * 60, accel: num(r.Accel), theta: num(r.theta),
+    });
+  }
+
+  const COLS: [string, keyof FbpOutput][] = [
+    ["ROS", "ros"], ["CFB", "cfb"], ["CFC", "cfc"], ["TFC", "tfc"],
+    ["HFI", "hfi"], ["SFC", "sfc"],
+  ];
+
+  test("fbp() Primary matches R within EPS (ROS/CFB/CFC/TFC/HFI/SFC/RAZ/FD)", () => {
+    const outs = inputs.map(runRow);
+    const fails: string[] = [];
+    for (const [gcol, field] of COLS) {
+      const bad: string[] = [];
+      for (let i = 0; i < gold.length; i++) {
+        const expected = num(gold[i][gcol]);
+        const actual = outs[i][field] as number;
+        if (Math.abs(expected) < 1e-4 && Math.abs(actual) < 1e-4) continue;
+        if (relErr(actual, expected) > EPS) bad.push(`row${gold[i].ID}:exp=${expected},act=${(actual as number).toPrecision(5)}`);
+      }
+      if (bad.length) fails.push(`  ${gcol}: ${bad.length} fail — ${bad.slice(0, 4).join("; ")}`);
+    }
+    // RAZ — circular (degrees). Only defined with net forcing (skip WS=0 & GS=0).
+    const razBad: string[] = [];
+    for (let i = 0; i < gold.length; i++) {
+      const r = inputs[i];
+      const ws = isFinite(num(r.WS)) ? num(r.WS) : 10;
+      if (ws === 0 && num(r.GS) === 0) continue;
+      const d = angDiff(outs[i].raz, num(gold[i].RAZ));
+      if (d / 360 > EPS) razBad.push(`row${gold[i].ID}:exp=${gold[i].RAZ},act=${outs[i].raz.toPrecision(5)}`);
+    }
+    if (razBad.length) fails.push(`  RAZ: ${razBad.length} fail — ${razBad.slice(0, 4).join("; ")}`);
+    // FD — categorical fire type (S / I / C).
+    const fdBad: string[] = [];
+    for (let i = 0; i < gold.length; i++) {
+      if (outs[i].ft !== gold[i].FD) fdBad.push(`row${gold[i].ID}:exp=${gold[i].FD},act=${outs[i].ft}`);
+    }
+    if (fdBad.length) fails.push(`  FD: ${fdBad.length} fail — ${fdBad.slice(0, 4).join("; ")}`);
+    // eslint-disable-next-line no-console
+    console.log(`[parity] fbp_06 primary: ${COLS.length + 2 - fails.length}/${COLS.length + 2} columns clean`);
+    if (fails.length) throw new Error(`fbp_06 divergent columns:\n${fails.join("\n")}`);
+  });
+});
+
+// ====================================================================
+// Coverage notes — everything ST-X-3 §7/§8 defines is now validated:
+//   - Net effective wind speed (WSV) and spread azimuth (RAZ) are validated at
+//     the SYSTEM level (WSV via the fbp_04 snapshot; RAZ via fbp_06), plus the
+//     bare slope_adjustment WSV/RAZ against Slope.csv above; the slope FACTOR
+//     (SF) is validated in tests/sf.test.ts.
+//   - Simard line/point rate-of-spread (SimardRateOfSpreadLine/Point.csv) is
+//     NOT part of ST-X-3 §8 secondary FBP — it is a separate observation-point
+//     ROS utility with no active R source in cffdrs_r (only stale gold vectors
+//     remain). Like area/perimeter, it is deliberately out of scope for this
+//     contribution, so there is no skipped placeholder for it.
+// ====================================================================
 
 // ====================================================================
 // C-6 crown-fire decomposition (c6.ts) — each helper validated against its
