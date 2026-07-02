@@ -49,7 +49,7 @@ No third-party implementation is referenced in source or tests.
 
 ## 4. What `fbp()` returns
 
-`FbpOutput` fields: head ROS, back ROS, flank ROS, head/back/flank fire intensities (HFI/BFI/FFI), crown fraction burned, fire type ('S'/'I'/'C'), surface/crown/total fuel consumption, foliar moisture content, ISI on slope, net effective wind speed, spread direction azimuth, length-to-breadth ratio, head/back spread distance.
+`FbpOutput` fields — Primary: head ROS, back ROS, flank ROS, head/back/flank fire intensities (HFI/BFI/FFI), crown fraction burned, fire type ('S'/'I'/'C'), surface/crown/total fuel consumption, foliar moisture content, ISI on slope, net effective wind speed, spread direction azimuth, length-to-breadth ratio, head/back spread distance. Secondary (ST-X-3 §8): buildup effect, slope factor, critical surface ROS/intensity (RSO/CSI), date-of-min FMC (D0), length-to-breadth at time (LBt), flank distance (DF), head/flank/back ROS at time (HROSt/FROSt/BROSt), ROS toward angle theta and at time (TROS/TROSt), flank/back/theta crown fraction burned and total fuel consumption, theta fire intensity (TFI), and elapsed time to crown-fire initiation for head/flank/back/theta (TI/FTI/BTI/TTI).
 
 ## 5. Tests
 

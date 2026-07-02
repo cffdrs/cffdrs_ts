@@ -24,9 +24,11 @@ This is a clean-room implementation written directly from those published equati
 
 ## Status
 
-Primary FBP components (ST-X-3 §7) are implemented for all 17 fuel types — `fmc`, `sf`, `sfc`, `be`, `ros`, `cfb`, `cfc`, `tfc`, `fi`, `ft`, `isf`, plus the `fbp()` orchestrator and the fuel-type reference table. 101 jest tests pass across 10 suites. `tsc --noEmit` clean. `src/fwi/` is unmodified from upstream.
+Primary FBP components (ST-X-3 §7) are implemented for all 17 fuel types — `fmc`, `sf`, `sfc`, `be`, `ros`, `cfb`, `cfc`, `tfc`, `fi`, `ft`, `isf`, plus the `fbp()` orchestrator and the fuel-type reference table.
 
-Secondary components (ST-X-3 §8 — acceleration to equilibrium, elliptical fire growth) are not yet implemented.
+Secondary components (ST-X-3 §8 — acceleration to equilibrium, elliptical fire growth) are also implemented: `lb` (length-to-breadth), `bros` (back ROS), `fros` (flank ROS), `rosAtTime`, `distanceAtTime`, `lbAtTime`, `rosAtTheta`, plus the `accAlpha`, `crownBaseHeight`, and `crownFuelConsumption` helpers. `fbp()` emits the full Secondary/All field set.
+
+Every primitive is validated against the canonical R `cffdrs` gold vectors (per-primitive CSVs plus the end-to-end `fbp_04`/`fbp_06` snapshots) at a relative tolerance of 5e-4. `tsc --noEmit` clean. `src/fwi/` is unmodified from upstream.
 
 ## Conventions
 
