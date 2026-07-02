@@ -18,3 +18,18 @@ Resources Canada / Canadian Forest Service and contributors).
 
 They are vendored (rather than downloaded on demand) so the parity suite is
 self-contained and reproducible on a fresh clone.
+
+## §8 Secondary FBP vectors
+
+Fetched from the same `cffdrs/cffdrs_r` `tests/testthat/data/` directory:
+- `LengthToBreadthRatio.csv` — `length_to_breadth`
+- `BackRateOfSpread.csv` — `back_rate_of_spread`
+- `FlankRateOfSpread.csv` — `flank_rate_of_spread`
+- `RateOfSpreadAtTime.csv` — `rate_of_spread_at_time`
+- `DistanceAtTime.csv` — `distance_at_time`
+- `LengthToBreadthRatioAtTime.csv` — `length_to_breadth_at_time`
+- `RateOfSpreadAtTheta.csv` — `rate_of_spread_at_theta`
+- `CrownBaseHeight.csv` — `crown_base_height`
+- `fbp_04.csv` (Secondary) and `fbp_06.csv` (All) — end-to-end
+  `fire_behaviour_prediction` snapshots over `test_fbp.csv`, used for the
+  system-level parity tests.
